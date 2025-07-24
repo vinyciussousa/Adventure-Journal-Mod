@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "adventurejournalmod",
+  "version": "1.0.0",
+  "name": "Adventure Journal",
+  "description": "Adiciona um Diário de Aventuras quando você cria um novo mundo para registrar suas aventuras.",
+  "authors": [
+    "Maviyy"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.example.adventurejournalmod.AdventureJournalMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "1.21.8",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
