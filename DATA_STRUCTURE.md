@@ -46,6 +46,17 @@ saves/
       "timestamp": "24/07/2025 16:15"
     },
     {
+      "name": "Spawn",
+      "description": "Local marcado sem descrição",
+      "position": {
+        "x": 0,
+        "y": 64,
+        "z": 0
+      },
+      "dimension": "minecraft:overworld",
+      "timestamp": "24/07/2025 16:25"
+    },
+    {
       "name": "PortalNether",
       "description": "Portal para o Nether próximo à base",
       "position": {
@@ -107,7 +118,11 @@ saves/
 
 2. **Jogador adiciona POI**
    ```
+   # Com descrição
    /poi add MinhaFarm "Farm de trigo automatizada"
+   
+   # Sem descrição  
+   /poi add Loja
    ```
    - POI é adicionado à lista na memória
    - Dados são salvos no arquivo JSON

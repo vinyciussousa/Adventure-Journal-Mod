@@ -9,11 +9,11 @@ Um mod do Minecraft que fornece um **Diário de Aventuras automático** para os 
 - **Preservação após morte**: O diário é automaticamente restaurado após a morte do jogador
 - **Conteúdo dinâmico**: O livro é atualizado automaticamente com novas informações
 
-### Páginas do Diário
+### Funcionalidades do Diário
 
 #### Página 1: Introdução
 - Apresentação do mod
-- Instruções de uso dos comandos
+- Instruções de uso dos comandos (incluindo versão com descrição opcional)
 - Explicação das funcionalidades
 
 #### Página 2: Última Morte
@@ -26,23 +26,32 @@ Um mod do Minecraft que fornece um **Diário de Aventuras automático** para os 
 
 #### Páginas 3+: Pontos de Interesse
 - **Adição manual**: Jogadores podem adicionar pontos de interesse usando comandos
+- **Descrição opcional**: Pode ser adicionado com ou sem descrição
 - **Informações detalhadas**:
   - Nome personalizado do local
-  - Descrição detalhada
+  - Descrição detalhada (ou padrão se não fornecida)
   - Coordenadas exatas
   - Dimensão
   - Data/hora de registro
 
+### Personalização
+
+#### Autor do Livro
+- O autor do diário é automaticamente definido como o nome do jogador
+- Cada jogador tem seu próprio diário personalizado
+
 ## 🎮 Comandos
 
-### `/poi add <nome> <descrição>`
-Adiciona um novo ponto de interesse na sua localização atual.
+### `/poi add <nome>` ou `/poi add <nome> <descrição>`
+Adiciona um novo ponto de interesse na sua localização atual. A descrição é opcional.
 
-**Exemplo:**
+**Exemplos:**
 ```
 /poi add MinhaBase "Minha base principal com farms e armazenamento"
 /poi add Diamantes "Caverna com veio de diamantes encontrada"
 /poi add Vila "Vila de NPCs próxima ao spawn"
+/poi add Spawn
+/poi add Mina
 ```
 
 ### `/poi list`

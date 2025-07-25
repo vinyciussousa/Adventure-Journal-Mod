@@ -61,8 +61,13 @@ public class AdventureJournalMod implements ModInitializer {
             public PointOfInterest() {}
             
             public String getFormattedInfo() {
-                return String.format("§6%s§r\n§7%s§r\nLocal: %d, %d, %d (%s)\nAdicionado em: %s\n", 
-                    name, description, position.x, position.y, position.z, dimension, timestamp);
+                // Layout otimizado para caber dentro do limite de 256 caracteres
+                String dimName = dimension.contains("overworld") ? "Overworld" : 
+                               dimension.contains("nether") ? "Nether" : 
+                               dimension.contains("end") ? "End" : "Desconhecida";
+                
+                return String.format("§6=== POI ===§r\n\n§e%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§b%s§r\n\n§8%s§r", 
+                    name, description, position.x, position.y, position.z, dimName, timestamp);
             }
         }
         
@@ -109,6 +114,25 @@ public class AdventureJournalMod implements ModInitializer {
         String worldName = player.getServer().getSaveProperties().getLevelName();
         String worldPath = player.getServer().getRunDirectory().resolve("saves").resolve(worldName).toString();
         return worldName + "_" + worldPath.hashCode();
+    }
+    
+    // Método para remover aspas do início e fim de uma string
+    private static String removeQuotes(String input) {
+        if (input == null || input.length() < 2) {
+            return input;
+        }
+        
+        // Remove aspas duplas
+        if (input.startsWith("\"") && input.endsWith("\"")) {
+            return input.substring(1, input.length() - 1);
+        }
+        
+        // Remove aspas simples
+        if (input.startsWith("'") && input.endsWith("'")) {
+            return input.substring(1, input.length() - 1);
+        }
+        
+        return input;
     }
     
     private static PlayerAdventureData getPlayerData(ServerPlayerEntity player) {
@@ -186,12 +210,26 @@ public class AdventureJournalMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("poi")
                 .then(CommandManager.literal("add")
-                    .then(CommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word())
+                    .then(CommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.string())
+                        // Comando com descrição
                         .then(CommandManager.argument("description", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
                             .executes(context -> {
                                 ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
                                 String name = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "name");
                                 String description = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "description");
+                                
+                                // Remove aspas do início e fim se existirem
+                                name = removeQuotes(name);
+                                description = removeQuotes(description);
+                                
+                                // Limita a descrição a 35 caracteres para garantir que a página não ultrapasse o limite
+                                if (description.length() > 35) {
+                                    description = description.substring(0, 35);
+                                    player.sendMessage(
+                                        Text.literal("§e⚠️ Descrição cortada para 35 caracteres.").formatted(Formatting.YELLOW),
+                                        false
+                                    );
+                                }
                                 
                                 PlayerAdventureData data = getPlayerData(player);
                                 BlockPos pos = player.getBlockPos();
@@ -212,6 +250,34 @@ public class AdventureJournalMod implements ModInitializer {
                                 return 1;
                             })
                         )
+                        // Comando apenas com nome (descrição opcional)
+                        .executes(context -> {
+                            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                            String name = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "name");
+                            
+                            // Remove aspas do início e fim se existirem
+                            name = removeQuotes(name);
+                            
+                            String description = "Local marcado"; // Descrição padrão mais concisa
+                            
+                            PlayerAdventureData data = getPlayerData(player);
+                            BlockPos pos = player.getBlockPos();
+                            String dimension = player.getWorld().getRegistryKey().getValue().toString();
+                            
+                            data.addPointOfInterest(name, description, pos, dimension);
+                            savePlayerData(player, data); // Salva os dados após adicionar POI
+                            updatePlayerBook(player);
+                            
+                            player.sendMessage(
+                                Text.literal("§a✅ Ponto de interesse '§6" + name + "§a' adicionado ao seu diário!").formatted(Formatting.GREEN),
+                                false
+                            );
+                            
+                            LOGGER.info("Jogador {} adicionou ponto de interesse: {} (sem descrição)", 
+                                player.getName().getString(), name);
+                            
+                            return 1;
+                        })
                     )
                 )
                 .then(CommandManager.literal("list")
@@ -375,47 +441,34 @@ public class AdventureJournalMod implements ModInitializer {
         
         // Página 1: Introdução
         String introPage = "§6=== DIÁRIO DE AVENTURAS ===§r\n\n" +
-                "§eBem-vindo ao seu diário automático de aventuras!§r\n\n" +
-                "Este livro registra automaticamente:\n" +
+                "§eBem-vindo!§r\n\n" +
+                "Registra automaticamente:\n" +
                 "• §cSua última morte§r\n" +
                 "• §aPontos de interesse§r\n\n" +
-                "§7Use o comando:§r\n" +
-                "§a/poi add <nome> <descrição>§r\n" +
-                "§7para adicionar pontos de interesse!§r\n\n" +
-                "§e/poi list§r §7para ver todos os pontos§r";
+                "§7Comandos:§r\n" +
+                "§a/poi add <nome>§r\n" +
+                "§a/poi add <nome> <desc>§r\n" +
+                "§e/poi list§r §7- lista pontos§r";
         
         pages.add(RawFilteredPair.of(Text.literal(introPage)));
         
         // Página 2: Última morte
         pages.add(RawFilteredPair.of(Text.literal(data.getLastDeathInfo())));
         
-        // Páginas 3+: Pontos de interesse
+        // Páginas 3+: Pontos de interesse (uma página por POI)
         if (data.getPointsOfInterest().isEmpty()) {
-            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto de interesse registrado ainda.§r\n\n§eUse /poi add <nome> <descrição> para adicionar pontos interessantes em sua aventura!§r")));
+            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto registrado.§r\n\n§eComandos:§r\n§a/poi add <nome>§r\n§a/poi add <nome> <desc>§r\n\n§7Adicione pontos interessantes em sua aventura!§r")));
         } else {
-            StringBuilder poiPage = new StringBuilder("§6=== PONTOS DE INTERESSE ===§r\n\n");
-            
-            for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
-                PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
-                
-                // Se a página atual está ficando muito longa, cria uma nova
-                if (poiPage.length() > 200) {
-                    pages.add(RawFilteredPair.of(Text.literal(poiPage.toString())));
-                    poiPage = new StringBuilder();
-                }
-                
-                poiPage.append(poi.getFormattedInfo()).append("\n");
-            }
-            
-            if (poiPage.length() > 0) {
-                pages.add(RawFilteredPair.of(Text.literal(poiPage.toString())));
+            // Adiciona uma página para cada POI
+            for (PlayerAdventureData.PointOfInterest poi : data.getPointsOfInterest()) {
+                pages.add(RawFilteredPair.of(Text.literal(poi.getFormattedInfo())));
             }
         }
         
         // Adiciona os componentes do livro
         WrittenBookContentComponent content = new WrittenBookContentComponent(
-            RawFilteredPair.of("Adventure Journal Mod"),  // título
-            "Sistema Automático",  // autor
+            RawFilteredPair.of("Diário de Aventuras"),  // título
+            player.getName().getString(),  // autor (nome do jogador)
             0,  // geração
             pages,  // páginas
             true  // resolved (para permitir formatação)
