@@ -39,7 +39,7 @@ public class AdventureJournalMod implements ModInitializer {
     
     // Classe para armazenar dados da aventura do jogador
     public static class PlayerAdventureData {
-        private String lastDeathInfo = "Nenhuma morte registrada ainda.";
+        private String lastDeathInfo = "§6=== MORTE ===§r\n\n§bVocê ainda não morreu nesta aventura!§r\n\n§7Continue explorando e enfrentando desafios!";
         private List<PointOfInterest> pointsOfInterest = new ArrayList<>();
         
         public static class PointOfInterest {
@@ -66,7 +66,7 @@ public class AdventureJournalMod implements ModInitializer {
                                dimension.contains("nether") ? "Nether" : 
                                dimension.contains("end") ? "End" : "Desconhecida";
                 
-                return String.format("§6=== POI ===§r\n\n§e%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§b%s§r\n\n§8%s§r", 
+                return String.format("§6=== POI ===§r\n\n§b%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§9%s§r\n\n§8%s§r", 
                     name, description, position.x, position.y, position.z, dimName, timestamp);
             }
         }
@@ -359,25 +359,30 @@ public class AdventureJournalMod implements ModInitializer {
     
     private String generateDeathInfo(ServerPlayerEntity player, net.minecraft.entity.damage.DamageSource damageSource) {
         LocalDateTime now = LocalDateTime.now();
-        String timestamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+        String timestamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
         
         BlockPos deathPos = player.getBlockPos();
         String dimension = player.getWorld().getRegistryKey().getValue().toString();
         
+        // Simplifica o nome da dimensão
+        String dimName = dimension.contains("overworld") ? "Overworld" : 
+                        dimension.contains("nether") ? "Nether" : 
+                        dimension.contains("end") ? "End" : "Desconhecida";
+        
         String cause = damageSource.getName();
         if (damageSource.getAttacker() != null) {
-            cause = "morto por " + damageSource.getAttacker().getName().getString();
+            cause = "Morto por " + damageSource.getAttacker().getName().getString();
         } else if (damageSource.getSource() != null) {
-            cause = "morto por " + damageSource.getSource().getName().getString();
+            cause = "Morto por " + damageSource.getSource().getName().getString();
         }
         
-        return String.format("§c=== ÚLTIMA MORTE ===§r\n" +
-                "Data: %s\n" +
-                "Local: %d, %d, %d\n" +
-                "Dimensão: %s\n" +
-                "Causa: %s\n" +
-                "§7Registrado automaticamente§r",
-                timestamp, deathPos.getX(), deathPos.getY(), deathPos.getZ(), dimension, cause);
+        // Limita a causa a 35 caracteres para consistência
+        if (cause.length() > 35) {
+            cause = cause.substring(0, 35);
+        }
+        
+        return String.format("§6=== MORTE ===§r\n\n§c%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§9%s§r\n\n§8%s§r",
+                "Última morte", cause, deathPos.getX(), deathPos.getY(), deathPos.getZ(), dimName, timestamp);
     }
     
     private void giveAdventureBook(ServerPlayerEntity player) {
@@ -441,14 +446,13 @@ public class AdventureJournalMod implements ModInitializer {
         
         // Página 1: Introdução
         String introPage = "§6=== DIÁRIO DE AVENTURAS ===§r\n\n" +
-                "§eBem-vindo!§r\n\n" +
+                "§bBem-vindo!§r\n\n" +
                 "Registra automaticamente:\n" +
                 "• §cSua última morte§r\n" +
                 "• §aPontos de interesse§r\n\n" +
                 "§7Comandos:§r\n" +
-                "§a/poi add <nome>§r\n" +
                 "§a/poi add <nome> <desc>§r\n" +
-                "§e/poi list§r §7- lista pontos§r";
+                "§a/poi list§r";
         
         pages.add(RawFilteredPair.of(Text.literal(introPage)));
         
@@ -457,7 +461,7 @@ public class AdventureJournalMod implements ModInitializer {
         
         // Páginas 3+: Pontos de interesse (uma página por POI)
         if (data.getPointsOfInterest().isEmpty()) {
-            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto registrado.§r\n\n§eComandos:§r\n§a/poi add <nome>§r\n§a/poi add <nome> <desc>§r\n\n§7Adicione pontos interessantes em sua aventura!§r")));
+            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto registrado.§r\n\n§bComandos:§r\n§a/poi add <nome> <desc>§r\n§a/poi list§r\n§7Adicione pontos interessantes em sua aventura!§r")));
         } else {
             // Adiciona uma página para cada POI
             for (PlayerAdventureData.PointOfInterest poi : data.getPointsOfInterest()) {
