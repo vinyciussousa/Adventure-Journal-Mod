@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.component.type.WritableBookContentComponent;
@@ -26,11 +27,49 @@ public class AdventureJournalMod implements ModInitializer {
     public static final String MOD_ID = "starterbookmod";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     
-    // Mapa para armazenar o conteúdo dos Diários por jogador
-    private static final Map<UUID, WritableBookContentComponent> savedBookContents = new HashMap<>();
+    // Mapas para armazenar dados por mundo (identificado pelo diretório do mundo)
+    // Mapa para armazenar o conteúdo dos Diários por jogador e por mundo
+    private static final Map<String, Map<UUID, WritableBookContentComponent>> savedBookContentsByWorld = new HashMap<>();
     
-    // Mapa para controlar quais jogadores já receberam o Diário
-    private static final Map<UUID, Boolean> playersWithBook = new HashMap<>();
+    // Mapa para controlar quais jogadores já receberam o Diário por mundo
+    private static final Map<String, Map<UUID, Boolean>> playersWithBookByWorld = new HashMap<>();
+    
+    // Métodos auxiliares para gerenciar dados por mundo
+    private static String getWorldId(ServerPlayerEntity player) {
+        // Usa informações específicas do mundo salvo para criar um ID único
+        String worldName = player.getServer().getSaveProperties().getLevelName();
+        String worldPath = player.getServer().getRunDirectory().resolve("saves").resolve(worldName).toString();
+        return worldName + "_" + worldPath.hashCode();
+    }
+    
+    private static Map<UUID, WritableBookContentComponent> getBookContentsForWorld(String worldId) {
+        return savedBookContentsByWorld.computeIfAbsent(worldId, k -> new HashMap<>());
+    }
+    
+    private static Map<UUID, Boolean> getPlayersWithBookForWorld(String worldId) {
+        return playersWithBookByWorld.computeIfAbsent(worldId, k -> new HashMap<>());
+    }
+    
+    // Método para debug - mostra todos os worldIds ativos
+    private static void logActiveWorlds() {
+        LOGGER.info("=== MUNDOS ATIVOS NA MEMÓRIA ===");
+        for (String worldId : savedBookContentsByWorld.keySet()) {
+            int playersWithData = savedBookContentsByWorld.get(worldId).size();
+            LOGGER.info("Mundo: '{}' - Jogadores com dados: {}", worldId, playersWithData);
+        }
+        LOGGER.info("Total de mundos na memória: {}", savedBookContentsByWorld.keySet().size());
+        LOGGER.info("===============================");
+    }
+    
+    // Método para verificar se há dados de outros mundos (para debug)
+    private static void checkForCrossWorldContamination(ServerPlayerEntity player, String currentWorldId) {
+        for (String worldId : savedBookContentsByWorld.keySet()) {
+            if (!worldId.equals(currentWorldId) && savedBookContentsByWorld.get(worldId).containsKey(player.getUuid())) {
+                LOGGER.warn("⚠️ ATENÇÃO: Jogador {} tem dados salvos em outro mundo: '{}'", 
+                    player.getName().getString(), worldId);
+            }
+        }
+    }
     
     @Override
     public void onInitialize() {
@@ -93,16 +132,39 @@ public class AdventureJournalMod implements ModInitializer {
             }
         });
         
+        // Limpa a memória quando o servidor para (importante para evitar vazamentos entre mundos)
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            LOGGER.info("========== SERVIDOR PARANDO - LIMPANDO MEMÓRIA ==========");
+            LOGGER.info("Mundos na memória antes da limpeza: {}", savedBookContentsByWorld.keySet().size());
+            savedBookContentsByWorld.clear();
+            playersWithBookByWorld.clear();
+            LOGGER.info("✅ Memória limpa! Todos os dados de mundos foram removidos.");
+            LOGGER.info("========================================================");
+        });
+        
         LOGGER.info("StarterBookMod carregado com todas as funcionalidades!");
     }
     
     private void checkAndGiveBook(ServerPlayerEntity player, String method) {
         LOGGER.info("[{}] Verificando jogador: {}", method, player.getName().getString());
         
-        // Verifica se já demos o Diário para este jogador antes
+        String worldId = getWorldId(player);
+        LOGGER.info(">>> WORLD ID GERADO: '{}'", worldId);
+        LOGGER.info(">>> Nome do mundo: '{}'", player.getServer().getSaveProperties().getLevelName());
+        LOGGER.info(">>> Diretório do servidor: '{}'", player.getServer().getRunDirectory().toString());
+        
+        // Log dos mundos ativos para debug
+        logActiveWorlds();
+        
+        // Verifica se há contaminação entre mundos
+        checkForCrossWorldContamination(player, worldId);
+        
+        Map<UUID, Boolean> playersWithBook = getPlayersWithBookForWorld(worldId);
+        
+        // Verifica se já demos o Diário para este jogador antes neste mundo
         Boolean alreadyGiven = playersWithBook.get(player.getUuid());
         if (alreadyGiven != null && alreadyGiven) {
-            LOGGER.info("Jogador {} já recebeu o Diário inicial antes", player.getName().getString());
+            LOGGER.info("Jogador {} já recebeu o Diário inicial antes neste mundo {}", player.getName().getString(), worldId);
             // Se já recebeu antes, só restaura o conteúdo se não tiver Diário
             if (!hasAnyBook(player)) {
                 LOGGER.info("Diário perdido, restaurando para {}", player.getName().getString());
@@ -115,7 +177,7 @@ public class AdventureJournalMod implements ModInitializer {
         // Verifica se o jogador já tem um Diário (qualquer Diário)
         if (hasAnyBook(player)) {
             LOGGER.info("Jogador {} já possui um Diário", player.getName().getString());
-            // Marca que já tem Diário
+            // Marca que já tem Diário neste mundo
             playersWithBook.put(player.getUuid(), true);
             return;
         }
@@ -125,9 +187,9 @@ public class AdventureJournalMod implements ModInitializer {
         LOGGER.info("Inventário está vazio: {}", isEmpty);
         
         if (isEmpty || method.equals("JOIN")) {
-            LOGGER.info("Dando Diário para {} via método {}", player.getName().getString(), method);
+            LOGGER.info("Dando Diário para {} via método {} no mundo {}", player.getName().getString(), method, worldId);
             giveStarterBook(player, method);
-            // Marca que já deu o Diário
+            // Marca que já deu o Diário neste mundo
             playersWithBook.put(player.getUuid(), true);
         }
     }
@@ -148,6 +210,9 @@ public class AdventureJournalMod implements ModInitializer {
     
     private void saveBookContentPeriodically(ServerPlayerEntity player) {
         // Salva silenciosamente sem logs excessivos
+        String worldId = getWorldId(player);
+        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
+        
         for (int i = 0; i < player.getInventory().size(); i++) {
             ItemStack stack = player.getInventory().getStack(i);
             
@@ -162,7 +227,7 @@ public class AdventureJournalMod implements ModInitializer {
                         savedBookContents.put(player.getUuid(), content);
                         // Log apenas uma vez a cada minuto (1200 ticks)
                         if (player.getServer().getTicks() % 1200 == 0) {
-                            LOGGER.info("💾 Conteúdo do Diário auto-salvo para {}", player.getName().getString());
+                            LOGGER.info("💾 Conteúdo do Diário auto-salvo para {} no mundo {}", player.getName().getString(), worldId);
                         }
                     }
                 }
@@ -174,6 +239,9 @@ public class AdventureJournalMod implements ModInitializer {
     private void saveBookContent(ServerPlayerEntity player) {
         LOGGER.info(">>> Iniciando saveBookContent para {}", player.getName().getString());
         LOGGER.info("Tamanho do inventário: {}", player.getInventory().size());
+        
+        String worldId = getWorldId(player);
+        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
         
         // Procura pelo Diário e salva seu conteúdo
         for (int i = 0; i < player.getInventory().size(); i++) {
@@ -194,7 +262,7 @@ public class AdventureJournalMod implements ModInitializer {
                     }
                     
                     savedBookContents.put(player.getUuid(), content);
-                    LOGGER.info("✅ CONTEÚDO SALVO COM SUCESSO para {}", player.getName().getString());
+                    LOGGER.info("✅ CONTEÚDO SALVO COM SUCESSO para {} no mundo {}", player.getName().getString(), worldId);
                     return;
                 } else {
                     LOGGER.info("Diário encontrado mas sem conteúdo (WritableBookContentComponent é null)");
@@ -207,9 +275,12 @@ public class AdventureJournalMod implements ModInitializer {
     private void restoreBookContent(ServerPlayerEntity player) {
         LOGGER.info(">>> Iniciando restoreBookContent para {}", player.getName().getString());
         
+        String worldId = getWorldId(player);
+        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
         WritableBookContentComponent savedContent = savedBookContents.get(player.getUuid());
+        
         if (savedContent == null) {
-            LOGGER.info("❌ Nenhum conteúdo salvo encontrado para {}", player.getName().getString());
+            LOGGER.info("❌ Nenhum conteúdo salvo encontrado para {} no mundo {}", player.getName().getString(), worldId);
             return;
         }
         
@@ -228,7 +299,7 @@ public class AdventureJournalMod implements ModInitializer {
                 LOGGER.info(">>> Restaurando conteúdo no Diário do slot {}", i);
                 
                 stack.set(DataComponentTypes.WRITABLE_BOOK_CONTENT, savedContent);
-                LOGGER.info("✅ CONTEÚDO RESTAURADO COM SUCESSO para {}", player.getName().getString());
+                LOGGER.info("✅ CONTEÚDO RESTAURADO COM SUCESSO para {} no mundo {}", player.getName().getString(), worldId);
                 
                 player.sendMessage(
                     Text.literal("§a✅ O conteúdo do seu diário foi restaurado!").formatted(Formatting.GREEN), 
