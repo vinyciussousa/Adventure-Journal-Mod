@@ -1,393 +1,434 @@
 package com.example.adventurejournalmod;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
-import net.minecraft.component.type.WritableBookContentComponent;
+import net.minecraft.component.type.WrittenBookContentComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.RawFilteredPair;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.math.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.ArrayList;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 public class AdventureJournalMod implements ModInitializer {
     public static final String MOD_ID = "starterbookmod";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     
-    // Mapas para armazenar dados por mundo (identificado pelo diretório do mundo)
-    // Mapa para armazenar o conteúdo dos Diários por jogador e por mundo
-    private static final Map<String, Map<UUID, WritableBookContentComponent>> savedBookContentsByWorld = new HashMap<>();
+    // Dados por mundo - armazena informações dos jogadores
+    private static final Map<String, Map<UUID, PlayerAdventureData>> playerDataByWorld = new HashMap<>();
     
-    // Mapa para controlar quais jogadores já receberam o Diário por mundo
-    private static final Map<String, Map<UUID, Boolean>> playersWithBookByWorld = new HashMap<>();
+    // Classe para armazenar dados da aventura do jogador
+    public static class PlayerAdventureData {
+        private String lastDeathInfo = "Nenhuma morte registrada ainda.";
+        private List<PointOfInterest> pointsOfInterest = new ArrayList<>();
+        
+        public static class PointOfInterest {
+            public String name;
+            public String description;
+            public SerializableBlockPos position;
+            public String dimension;
+            public String timestamp;
+            
+            public PointOfInterest(String name, String description, BlockPos position, String dimension) {
+                this.name = name;
+                this.description = description;
+                this.position = new SerializableBlockPos(position);
+                this.dimension = dimension;
+                this.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
+            }
+            
+            // Construtor vazio para Gson
+            public PointOfInterest() {}
+            
+            public String getFormattedInfo() {
+                return String.format("§6%s§r\n§7%s§r\nLocal: %d, %d, %d (%s)\nAdicionado em: %s\n", 
+                    name, description, position.x, position.y, position.z, dimension, timestamp);
+            }
+        }
+        
+        // Classe para serializar BlockPos
+        public static class SerializableBlockPos {
+            public int x, y, z;
+            
+            public SerializableBlockPos(BlockPos pos) {
+                this.x = pos.getX();
+                this.y = pos.getY();
+                this.z = pos.getZ();
+            }
+            
+            // Construtor vazio para Gson
+            public SerializableBlockPos() {}
+            
+            public BlockPos toBlockPos() {
+                return new BlockPos(x, y, z);
+            }
+        }
+        
+        // Construtor vazio para Gson
+        public PlayerAdventureData() {}
+        
+        public void setLastDeathInfo(String deathInfo) {
+            this.lastDeathInfo = deathInfo;
+        }
+        
+        public String getLastDeathInfo() {
+            return lastDeathInfo;
+        }
+        
+        public void addPointOfInterest(String name, String description, BlockPos position, String dimension) {
+            pointsOfInterest.add(new PointOfInterest(name, description, position, dimension));
+        }
+        
+        public List<PointOfInterest> getPointsOfInterest() {
+            return pointsOfInterest;
+        }
+    }
     
     // Métodos auxiliares para gerenciar dados por mundo
     private static String getWorldId(ServerPlayerEntity player) {
-        // Usa informações específicas do mundo salvo para criar um ID único
         String worldName = player.getServer().getSaveProperties().getLevelName();
         String worldPath = player.getServer().getRunDirectory().resolve("saves").resolve(worldName).toString();
         return worldName + "_" + worldPath.hashCode();
     }
     
-    private static Map<UUID, WritableBookContentComponent> getBookContentsForWorld(String worldId) {
-        return savedBookContentsByWorld.computeIfAbsent(worldId, k -> new HashMap<>());
-    }
-    
-    private static Map<UUID, Boolean> getPlayersWithBookForWorld(String worldId) {
-        return playersWithBookByWorld.computeIfAbsent(worldId, k -> new HashMap<>());
-    }
-    
-    // Método para debug - mostra todos os worldIds ativos
-    private static void logActiveWorlds() {
-        LOGGER.info("=== MUNDOS ATIVOS NA MEMÓRIA ===");
-        for (String worldId : savedBookContentsByWorld.keySet()) {
-            int playersWithData = savedBookContentsByWorld.get(worldId).size();
-            LOGGER.info("Mundo: '{}' - Jogadores com dados: {}", worldId, playersWithData);
-        }
-        LOGGER.info("Total de mundos na memória: {}", savedBookContentsByWorld.keySet().size());
-        LOGGER.info("===============================");
-    }
-    
-    // Método para verificar se há dados de outros mundos (para debug)
-    private static void checkForCrossWorldContamination(ServerPlayerEntity player, String currentWorldId) {
-        for (String worldId : savedBookContentsByWorld.keySet()) {
-            if (!worldId.equals(currentWorldId) && savedBookContentsByWorld.get(worldId).containsKey(player.getUuid())) {
-                LOGGER.warn("⚠️ ATENÇÃO: Jogador {} tem dados salvos em outro mundo: '{}'", 
-                    player.getName().getString(), worldId);
+    private static PlayerAdventureData getPlayerData(ServerPlayerEntity player) {
+        String worldId = getWorldId(player);
+        Map<UUID, PlayerAdventureData> worldData = playerDataByWorld.computeIfAbsent(worldId, k -> new HashMap<>());
+        
+        PlayerAdventureData data = worldData.get(player.getUuid());
+        if (data == null) {
+            // Tenta carregar do arquivo
+            data = loadPlayerData(player);
+            if (data == null) {
+                data = new PlayerAdventureData();
             }
+            worldData.put(player.getUuid(), data);
         }
+        
+        return data;
+    }
+    
+    // Métodos de persistência
+    private static Path getDataDirectory(ServerPlayerEntity player) {
+        String worldName = player.getServer().getSaveProperties().getLevelName();
+        Path worldDir = player.getServer().getRunDirectory().resolve("saves").resolve(worldName);
+        Path modDir = worldDir.resolve("adventure_journal");
+        
+        try {
+            Files.createDirectories(modDir);
+        } catch (IOException e) {
+            LOGGER.error("Erro ao criar diretório de dados: {}", e.getMessage());
+        }
+        
+        return modDir;
+    }
+    
+    private static Path getPlayerDataFile(ServerPlayerEntity player) {
+        return getDataDirectory(player).resolve(player.getUuid().toString() + ".json");
+    }
+    
+    private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    
+    private static void savePlayerData(ServerPlayerEntity player, PlayerAdventureData data) {
+        try {
+            Path dataFile = getPlayerDataFile(player);
+            String json = gson.toJson(data);
+            Files.write(dataFile, json.getBytes());
+            LOGGER.info("Dados salvos para jogador {}: {}", player.getName().getString(), dataFile);
+        } catch (IOException e) {
+            LOGGER.error("Erro ao salvar dados do jogador {}: {}", player.getName().getString(), e.getMessage());
+        }
+    }
+    
+    private static PlayerAdventureData loadPlayerData(ServerPlayerEntity player) {
+        try {
+            Path dataFile = getPlayerDataFile(player);
+            if (Files.exists(dataFile)) {
+                String json = new String(Files.readAllBytes(dataFile));
+                PlayerAdventureData data = gson.fromJson(json, PlayerAdventureData.class);
+                LOGGER.info("Dados carregados para jogador {}: {}", player.getName().getString(), dataFile);
+                return data;
+            }
+        } catch (IOException e) {
+            LOGGER.error("Erro ao carregar dados do jogador {}: {}", player.getName().getString(), e.getMessage());
+        }
+        return null;
     }
     
     @Override
     public void onInitialize() {
         System.out.println("=".repeat(50));
-        System.out.println("STARTERBOOKMOD FOI CARREGADO!");
-        System.out.println("Implementando funcionalidades...");
+        System.out.println("ADVENTURE JOURNAL MOD CARREGADO!");
+        System.out.println("Versão: Diário Automático de Aventuras");
         System.out.println("=".repeat(50));
         
-        // Para single player - quando jogador se conecta
+        // Registra o comando para adicionar pontos de interesse
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            dispatcher.register(CommandManager.literal("poi")
+                .then(CommandManager.literal("add")
+                    .then(CommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.word())
+                        .then(CommandManager.argument("description", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+                            .executes(context -> {
+                                ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                                String name = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "name");
+                                String description = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "description");
+                                
+                                PlayerAdventureData data = getPlayerData(player);
+                                BlockPos pos = player.getBlockPos();
+                                String dimension = player.getWorld().getRegistryKey().getValue().toString();
+                                
+                                data.addPointOfInterest(name, description, pos, dimension);
+                                savePlayerData(player, data); // Salva os dados após adicionar POI
+                                updatePlayerBook(player);
+                                
+                                player.sendMessage(
+                                    Text.literal("§a✅ Ponto de interesse '§6" + name + "§a' adicionado ao seu diário!").formatted(Formatting.GREEN),
+                                    false
+                                );
+                                
+                                LOGGER.info("Jogador {} adicionou ponto de interesse: {} - {}", 
+                                    player.getName().getString(), name, description);
+                                
+                                return 1;
+                            })
+                        )
+                    )
+                )
+                .then(CommandManager.literal("list")
+                    .executes(context -> {
+                        ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                        PlayerAdventureData data = getPlayerData(player);
+                        
+                        if (data.getPointsOfInterest().isEmpty()) {
+                            player.sendMessage(
+                                Text.literal("§eVocê ainda não tem pontos de interesse registrados.").formatted(Formatting.YELLOW),
+                                false
+                            );
+                        } else {
+                            player.sendMessage(
+                                Text.literal("§6=== Seus Pontos de Interesse ===").formatted(Formatting.GOLD),
+                                false
+                            );
+                            
+                            for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
+                                PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
+                                player.sendMessage(
+                                    Text.literal(String.format("§a%d. §6%s§r - %s", i + 1, poi.name, poi.description)).formatted(Formatting.WHITE),
+                                    false
+                                );
+                            }
+                        }
+                        
+                        return 1;
+                    })
+                )
+            );
+        });
+        
+        // Quando jogador se conecta
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
             LOGGER.info("Jogador conectou: {}", player.getName().getString());
             
-            // Agenda para garantir que o jogador está totalmente carregado
             server.execute(() -> {
-                checkAndGiveBook(player, "JOIN");
+                giveAdventureBook(player);
             });
         });
         
-        // Para garantir que funciona em respawn também
+        // Quando jogador respawna após morte
         ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
             LOGGER.info("Jogador respawnou: {} (alive: {})", newPlayer.getName().getString(), alive);
             
-            // Se o jogador morreu, precisamos dar o Diário de volta
             if (!alive) {
                 newPlayer.getServer().execute(() -> {
-                    ensureStarterBookExists(newPlayer);
+                    giveAdventureBook(newPlayer);
                 });
             }
         });
         
-        // Monitora periodicamente o conteúdo dos Diários (salva automaticamente)
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            // A cada 5 segundos (100 ticks)
-            if (server.getTicks() % 100 == 0) {
-                for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                    saveBookContentPeriodically(player);
-                }
-            }
-        });
-        
-        // Salva o conteúdo do Diário ANTES do jogador morrer (muito importante!)
+        // Registra informações de morte
         ServerLivingEntityEvents.ALLOW_DEATH.register((entity, damageSource, damageAmount) -> {
             if (entity instanceof ServerPlayerEntity player) {
-                LOGGER.info("========== JOGADOR VAI MORRER (ALLOW_DEATH) ==========");
-                LOGGER.info("Salvando conteúdo do Diário ANTES da morte: {}", player.getName().getString());
-                saveBookContent(player);
-                LOGGER.info("======================================================");
+                LOGGER.info("Jogador {} morreu", player.getName().getString());
+                
+                PlayerAdventureData data = getPlayerData(player);
+                String deathInfo = generateDeathInfo(player, damageSource);
+                data.setLastDeathInfo(deathInfo);
+                savePlayerData(player, data); // Salva os dados após morte
+                
+                LOGGER.info("Informação de morte registrada para {}: {}", player.getName().getString(), deathInfo);
             }
-            return true; // Permite a morte
+            return true;
         });
         
-        // Para garantir que o Diário não seja perdido na morte
-        ServerPlayerEvents.COPY_FROM.register((oldPlayer, newPlayer, alive) -> {
-            if (!alive) {
-                LOGGER.info("========== COPY_FROM DISPARADO ==========");
-                LOGGER.info("Jogador morreu (COPY_FROM): {}", newPlayer.getName().getString());
-                // Não precisa salvar aqui, já foi salvo no ALLOW_DEATH
-                LOGGER.info("========================================");
-            }
-        });
-        
-        // Limpa a memória quando o servidor para (importante para evitar vazamentos entre mundos)
+        // Limpa dados quando servidor para
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            LOGGER.info("========== SERVIDOR PARANDO - LIMPANDO MEMÓRIA ==========");
-            LOGGER.info("Mundos na memória antes da limpeza: {}", savedBookContentsByWorld.keySet().size());
-            savedBookContentsByWorld.clear();
-            playersWithBookByWorld.clear();
-            LOGGER.info("✅ Memória limpa! Todos os dados de mundos foram removidos.");
-            LOGGER.info("========================================================");
+            LOGGER.info("Servidor parando - limpando dados da memória");
+            playerDataByWorld.clear();
+            LOGGER.info("Dados limpos!");
         });
         
-        LOGGER.info("StarterBookMod carregado com todas as funcionalidades!");
+        LOGGER.info("Adventure Journal Mod carregado com sucesso!");
     }
     
-    private void checkAndGiveBook(ServerPlayerEntity player, String method) {
-        LOGGER.info("[{}] Verificando jogador: {}", method, player.getName().getString());
+    private String generateDeathInfo(ServerPlayerEntity player, net.minecraft.entity.damage.DamageSource damageSource) {
+        LocalDateTime now = LocalDateTime.now();
+        String timestamp = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
         
-        String worldId = getWorldId(player);
-        LOGGER.info(">>> WORLD ID GERADO: '{}'", worldId);
-        LOGGER.info(">>> Nome do mundo: '{}'", player.getServer().getSaveProperties().getLevelName());
-        LOGGER.info(">>> Diretório do servidor: '{}'", player.getServer().getRunDirectory().toString());
+        BlockPos deathPos = player.getBlockPos();
+        String dimension = player.getWorld().getRegistryKey().getValue().toString();
         
-        // Log dos mundos ativos para debug
-        logActiveWorlds();
-        
-        // Verifica se há contaminação entre mundos
-        checkForCrossWorldContamination(player, worldId);
-        
-        Map<UUID, Boolean> playersWithBook = getPlayersWithBookForWorld(worldId);
-        
-        // Verifica se já demos o Diário para este jogador antes neste mundo
-        Boolean alreadyGiven = playersWithBook.get(player.getUuid());
-        if (alreadyGiven != null && alreadyGiven) {
-            LOGGER.info("Jogador {} já recebeu o Diário inicial antes neste mundo {}", player.getName().getString(), worldId);
-            // Se já recebeu antes, só restaura o conteúdo se não tiver Diário
-            if (!hasAnyBook(player)) {
-                LOGGER.info("Diário perdido, restaurando para {}", player.getName().getString());
-                giveStarterBook(player, method);
-                restoreBookContent(player);
-            }
-            return;
+        String cause = damageSource.getName();
+        if (damageSource.getAttacker() != null) {
+            cause = "morto por " + damageSource.getAttacker().getName().getString();
+        } else if (damageSource.getSource() != null) {
+            cause = "morto por " + damageSource.getSource().getName().getString();
         }
         
-        // Verifica se o jogador já tem um Diário (qualquer Diário)
-        if (hasAnyBook(player)) {
-            LOGGER.info("Jogador {} já possui um Diário", player.getName().getString());
-            // Marca que já tem Diário neste mundo
-            playersWithBook.put(player.getUuid(), true);
-            return;
-        }
-        
-        // Se é um inventário vazio (primeiro spawn) ou não tem Diário
-        boolean isEmpty = player.getInventory().isEmpty();
-        LOGGER.info("Inventário está vazio: {}", isEmpty);
-        
-        if (isEmpty || method.equals("JOIN")) {
-            LOGGER.info("Dando Diário para {} via método {} no mundo {}", player.getName().getString(), method, worldId);
-            giveStarterBook(player, method);
-            // Marca que já deu o Diário neste mundo
-            playersWithBook.put(player.getUuid(), true);
-        }
+        return String.format("§c=== ÚLTIMA MORTE ===§r\n" +
+                "Data: %s\n" +
+                "Local: %d, %d, %d\n" +
+                "Dimensão: %s\n" +
+                "Causa: %s\n" +
+                "§7Registrado automaticamente§r",
+                timestamp, deathPos.getX(), deathPos.getY(), deathPos.getZ(), dimension, cause);
     }
     
-    private void ensureStarterBookExists(ServerPlayerEntity player) {
-        LOGGER.info("Garantindo que {} tenha o Diário após morte", player.getName().getString());
+    private void giveAdventureBook(ServerPlayerEntity player) {
+        LOGGER.info("Dando Diário de Aventuras para: {}", player.getName().getString());
         
-        if (!hasAnyBook(player)) {
-            LOGGER.info("Diário perdido na morte, restaurando para {}", player.getName().getString());
-            giveStarterBook(player, "DEATH_RESTORE");
-        } else {
-            LOGGER.info("{} ainda possui um Diário", player.getName().getString());
-        }
+        // Remove qualquer livro antigo primeiro
+        removeOldBooks(player);
         
-        // SEMPRE tenta restaurar o conteúdo salvo após morte
-        restoreBookContent(player);
-    }
-    
-    private void saveBookContentPeriodically(ServerPlayerEntity player) {
-        // Salva silenciosamente sem logs excessivos
-        String worldId = getWorldId(player);
-        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
+        // Cria o novo livro
+        ItemStack adventureBook = createAdventureBook(player);
         
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
-            
-            if (stack.isOf(Items.WRITABLE_BOOK)) {
-                WritableBookContentComponent content = stack.get(DataComponentTypes.WRITABLE_BOOK_CONTENT);
-                if (content != null && !content.pages().isEmpty()) {
-                    // Só salva se há conteúdo real
-                    boolean hasRealContent = content.pages().stream()
-                        .anyMatch(page -> !page.raw().trim().isEmpty());
-                    
-                    if (hasRealContent) {
-                        savedBookContents.put(player.getUuid(), content);
-                        // Log apenas uma vez a cada minuto (1200 ticks)
-                        if (player.getServer().getTicks() % 1200 == 0) {
-                            LOGGER.info("💾 Conteúdo do Diário auto-salvo para {} no mundo {}", player.getName().getString(), worldId);
-                        }
-                    }
-                }
-                break; // Só precisa do primeiro Diário
-            }
-        }
-    }
-    
-    private void saveBookContent(ServerPlayerEntity player) {
-        LOGGER.info(">>> Iniciando saveBookContent para {}", player.getName().getString());
-        LOGGER.info("Tamanho do inventário: {}", player.getInventory().size());
-        
-        String worldId = getWorldId(player);
-        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
-        
-        // Procura pelo Diário e salva seu conteúdo
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
-            LOGGER.info("Slot {}: {} (quantidade: {})", i, stack.getItem().toString(), stack.getCount());
-            
-            if (stack.isOf(Items.WRITABLE_BOOK)) {
-                LOGGER.info(">>> Diário ENCONTRADO no slot {}", i);
-                
-                WritableBookContentComponent content = stack.get(DataComponentTypes.WRITABLE_BOOK_CONTENT);
-                if (content != null) {
-                    List<RawFilteredPair<String>> pages = content.pages();
-                    LOGGER.info("Conteúdo encontrado! Páginas: {}", pages.size());
-                    
-                    for (int pageIndex = 0; pageIndex < pages.size(); pageIndex++) {
-                        String pageContent = pages.get(pageIndex).raw();
-                        LOGGER.info("Página {}: '{}'", pageIndex, pageContent);
-                    }
-                    
-                    savedBookContents.put(player.getUuid(), content);
-                    LOGGER.info("✅ CONTEÚDO SALVO COM SUCESSO para {} no mundo {}", player.getName().getString(), worldId);
-                    return;
-                } else {
-                    LOGGER.info("Diário encontrado mas sem conteúdo (WritableBookContentComponent é null)");
-                }
-            }
-        }
-        LOGGER.info("❌ Nenhum Diário encontrado no inventário");
-    }
-    
-    private void restoreBookContent(ServerPlayerEntity player) {
-        LOGGER.info(">>> Iniciando restoreBookContent para {}", player.getName().getString());
-        
-        String worldId = getWorldId(player);
-        Map<UUID, WritableBookContentComponent> savedBookContents = getBookContentsForWorld(worldId);
-        WritableBookContentComponent savedContent = savedBookContents.get(player.getUuid());
-        
-        if (savedContent == null) {
-            LOGGER.info("❌ Nenhum conteúdo salvo encontrado para {} no mundo {}", player.getName().getString(), worldId);
-            return;
-        }
-        
-        LOGGER.info("✅ Conteúdo salvo encontrado! Páginas: {}", savedContent.pages().size());
-        
-        // Log do conteúdo que será restaurado
-        for (int pageIndex = 0; pageIndex < savedContent.pages().size(); pageIndex++) {
-            String pageContent = savedContent.pages().get(pageIndex).raw();
-            LOGGER.info("Restaurando página {}: '{}'", pageIndex, pageContent);
-        }
-        
-        // Procura pelo Diário e restaura o conteúdo
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
-            if (stack.isOf(Items.WRITABLE_BOOK)) {
-                LOGGER.info(">>> Restaurando conteúdo no Diário do slot {}", i);
-                
-                stack.set(DataComponentTypes.WRITABLE_BOOK_CONTENT, savedContent);
-                LOGGER.info("✅ CONTEÚDO RESTAURADO COM SUCESSO para {} no mundo {}", player.getName().getString(), worldId);
-                
-                player.sendMessage(
-                    Text.literal("§a✅ O conteúdo do seu diário foi restaurado!").formatted(Formatting.GREEN), 
-                    false
-                );
-                
-                // NÃO remove o conteúdo salvo - mantém para futuras mortes
-                return;
-            }
-        }
-        LOGGER.info("❌ Nenhum Diário encontrado para restaurar o conteúdo");
-    }
-    
-    private boolean hasAnyBook(ServerPlayerEntity player) {
-        // Simplesmente verifica se o jogador tem qualquer Diário
-        for (int i = 0; i < player.getInventory().size(); i++) {
-            ItemStack stack = player.getInventory().getStack(i);
-            if (stack.isOf(Items.WRITABLE_BOOK) || stack.isOf(Items.WRITTEN_BOOK)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    
-    private void giveStarterBook(ServerPlayerEntity player, String method) {
-        LOGGER.info("==========================================");
-        LOGGER.info("DANDO Diário PARA: {}", player.getName().getString());
-        LOGGER.info("MÉTODO: {}", method);
-        LOGGER.info("==========================================");
-        
-        // Cria um Book and Quill especial
-        ItemStack bookAndQuill = new ItemStack(Items.WRITABLE_BOOK);
-        
-        // Marca o Diário como especial (apenas para identificação nos logs)
-        NbtCompound customNbt = new NbtCompound();
-        customNbt.putString("starterbookmod_origin", method);
-        customNbt.putLong("starterbookmod_created", System.currentTimeMillis());
-        
-        bookAndQuill.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(customNbt));
-        
-        // Define um nome customizado para o Diário
-        bookAndQuill.set(DataComponentTypes.CUSTOM_NAME, 
-            Text.literal("Diário de Aventuras").formatted(Formatting.GOLD));
-        
-        LOGGER.info("Diário especial criado: {}", bookAndQuill.getItem().toString());
-        
-        // Tenta adicionar o Diário ao inventário do jogador
-        boolean added = player.getInventory().insertStack(bookAndQuill);
-        LOGGER.info("Diário adicionado ao inventário: {}", added);
-        
-        if (added) {
-            // Mensagens diferentes dependendo do método
-            if (method.equals("JOIN")) {
-                // Mensagens de boas-vindas apenas no primeiro spawn
-                player.sendMessage(
-                    Text.literal("§6✨ BEM-VINDO AO MUNDO! ✨").formatted(Formatting.GOLD), 
-                    false
-                );
-                
-                player.sendMessage(
-                    Text.literal("§eVocê recebeu um Diário de Aventuras especial!").formatted(Formatting.YELLOW), 
-                    false
-                );
-                
-                player.sendMessage(
-                    Text.literal("§a§l[INFO] Use este diário para registrar suas aventuras! O conteúdo será preservado mesmo após a morte.").formatted(Formatting.GREEN), 
-                    false
-                );
-            } else if (method.equals("DEATH_RESTORE")) {
-                // Mensagem diferente para respawn após morte
-                player.sendMessage(
-                    Text.literal("§e📖 Seu Diário de Aventuras foi restaurado!").formatted(Formatting.YELLOW), 
-                    false
-                );
-            }
-            
-            LOGGER.info("✅ SUCESSO: Diário especial dado para {}", player.getName().getString());
-        } else {
-            // Se o inventário estiver cheio, dropa no chão
-            player.dropItem(bookAndQuill, false);
-            LOGGER.info("⚠️ Inventário cheio, Diário dropado no chão");
-            
+        boolean added = player.getInventory().insertStack(adventureBook);
+        if (!added) {
+            player.dropItem(adventureBook, false);
             player.sendMessage(
-                Text.literal("§cInventário cheio! Diário de Aventuras dropado no chão.").formatted(Formatting.RED), 
+                Text.literal("§cInventário cheio! Diário de Aventuras dropado no chão.").formatted(Formatting.RED),
+                false
+            );
+        } else {
+            player.sendMessage(
+                Text.literal("§6✨ Diário de Aventuras atualizado! ✨").formatted(Formatting.GOLD),
                 false
             );
         }
+    }
+    
+    private void removeOldBooks(ServerPlayerEntity player) {
+        for (int i = 0; i < player.getInventory().size(); i++) {
+            ItemStack stack = player.getInventory().getStack(i);
+            if ((stack.isOf(Items.WRITTEN_BOOK) || stack.isOf(Items.WRITABLE_BOOK)) && 
+                stack.contains(DataComponentTypes.CUSTOM_NAME) && 
+                stack.getName().getString().contains("Diário de Aventuras")) {
+                player.getInventory().setStack(i, ItemStack.EMPTY);
+            }
+        }
+    }
+    
+    private void updatePlayerBook(ServerPlayerEntity player) {
+        // Remove o livro antigo e dá um novo atualizado
+        removeOldBooks(player);
         
-        LOGGER.info("==========================================");
+        ItemStack updatedBook = createAdventureBook(player);
+        boolean added = player.getInventory().insertStack(updatedBook);
+        
+        if (!added) {
+            player.dropItem(updatedBook, false);
+        }
+    }
+    
+    private ItemStack createAdventureBook(ServerPlayerEntity player) {
+        PlayerAdventureData data = getPlayerData(player);
+        
+        ItemStack book = new ItemStack(Items.WRITTEN_BOOK);
+        
+        // Define o nome do livro
+        book.set(DataComponentTypes.CUSTOM_NAME, 
+            Text.literal("Diário de Aventuras").formatted(Formatting.GOLD));
+        
+        // Cria as páginas do livro
+        List<RawFilteredPair<Text>> pages = new ArrayList<>();
+        
+        // Página 1: Introdução
+        String introPage = "§6=== DIÁRIO DE AVENTURAS ===§r\n\n" +
+                "§eBem-vindo ao seu diário automático de aventuras!§r\n\n" +
+                "Este livro registra automaticamente:\n" +
+                "• §cSua última morte§r\n" +
+                "• §aPontos de interesse§r\n\n" +
+                "§7Use o comando:§r\n" +
+                "§a/poi add <nome> <descrição>§r\n" +
+                "§7para adicionar pontos de interesse!§r\n\n" +
+                "§e/poi list§r §7para ver todos os pontos§r";
+        
+        pages.add(RawFilteredPair.of(Text.literal(introPage)));
+        
+        // Página 2: Última morte
+        pages.add(RawFilteredPair.of(Text.literal(data.getLastDeathInfo())));
+        
+        // Páginas 3+: Pontos de interesse
+        if (data.getPointsOfInterest().isEmpty()) {
+            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto de interesse registrado ainda.§r\n\n§eUse /poi add <nome> <descrição> para adicionar pontos interessantes em sua aventura!§r")));
+        } else {
+            StringBuilder poiPage = new StringBuilder("§6=== PONTOS DE INTERESSE ===§r\n\n");
+            
+            for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
+                PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
+                
+                // Se a página atual está ficando muito longa, cria uma nova
+                if (poiPage.length() > 200) {
+                    pages.add(RawFilteredPair.of(Text.literal(poiPage.toString())));
+                    poiPage = new StringBuilder();
+                }
+                
+                poiPage.append(poi.getFormattedInfo()).append("\n");
+            }
+            
+            if (poiPage.length() > 0) {
+                pages.add(RawFilteredPair.of(Text.literal(poiPage.toString())));
+            }
+        }
+        
+        // Adiciona os componentes do livro
+        WrittenBookContentComponent content = new WrittenBookContentComponent(
+            RawFilteredPair.of("Adventure Journal Mod"),  // título
+            "Sistema Automático",  // autor
+            0,  // geração
+            pages,  // páginas
+            true  // resolved (para permitir formatação)
+        );
+        
+        book.set(DataComponentTypes.WRITTEN_BOOK_CONTENT, content);
+        
+        // Marca como especial
+        NbtCompound customNbt = new NbtCompound();
+        customNbt.putString("adventure_journal", "automatic");
+        customNbt.putLong("created", System.currentTimeMillis());
+        book.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(customNbt));
+        
+        return book;
     }
 }
