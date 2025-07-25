@@ -1,6 +1,6 @@
 # Adventure Journal Mod
 
-Um mod do Minecraft que fornece um **Diário de Aventuras automático** para os jogadores registrarem sua jornada.
+Um mod do Minecraft que fornece um **Diário de Aventuras** para os jogadores registrarem sua jornada.
 
 ## 📖 Funcionalidades
 
@@ -13,7 +13,7 @@ Um mod do Minecraft que fornece um **Diário de Aventuras automático** para os 
 
 #### Página 1: Introdução
 - Apresentação do mod
-- Instruções de uso dos comandos (incluindo versão com descrição opcional)
+- Instruções de uso dos comandos
 - Explicação das funcionalidades
 
 #### Página 2: Última Morte
