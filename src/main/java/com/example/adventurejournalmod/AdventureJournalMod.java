@@ -235,7 +235,7 @@ public class AdventureJournalMod implements ModInitializer {
                                 if (description.length() > 35) {
                                     description = description.substring(0, 35);
                                     player.sendMessage(
-                                        Text.literal("§e⚠️ Descrição cortada para 35 caracteres.").formatted(Formatting.YELLOW),
+                                        Text.literal("§e🚫 Descrição cortada para 35 caracteres.").formatted(Formatting.YELLOW),
                                         false
                                     );
                                 }
@@ -267,7 +267,7 @@ public class AdventureJournalMod implements ModInitializer {
                             // Remove aspas do início e fim se existirem
                             name = removeQuotes(name);
                             
-                            String description = "Local marcado"; // Descrição padrão mais concisa
+                            String description = "==============="; // Descrição padrão mais concisa
                             
                             PlayerAdventureData data = getPlayerData(player);
                             BlockPos pos = player.getBlockPos();
@@ -426,6 +426,10 @@ public class AdventureJournalMod implements ModInitializer {
                 );
                 player.sendMessage(
                     Text.literal("§7Use §a/poi add <nome>§7 para marcar locais importantes.").formatted(Formatting.GRAY),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi list§7 para listar locais importantes.").formatted(Formatting.GRAY),
                     false
                 );
                 
