@@ -41,6 +41,7 @@ public class AdventureJournalMod implements ModInitializer {
     public static class PlayerAdventureData {
         private String lastDeathInfo = "§6=== MORTE ===§r\n\n§bVocê ainda não morreu nesta aventura!§r\n\n§7Continue explorando e enfrentando desafios!";
         private List<PointOfInterest> pointsOfInterest = new ArrayList<>();
+        private boolean isFirstTime = true; // Flag para detectar primeira vez
         
         public static class PointOfInterest {
             public String name;
@@ -106,6 +107,14 @@ public class AdventureJournalMod implements ModInitializer {
         
         public List<PointOfInterest> getPointsOfInterest() {
             return pointsOfInterest;
+        }
+        
+        public boolean isFirstTime() {
+            return isFirstTime;
+        }
+        
+        public void setFirstTime(boolean firstTime) {
+            this.isFirstTime = firstTime;
         }
     }
     
@@ -388,6 +397,9 @@ public class AdventureJournalMod implements ModInitializer {
     private void giveAdventureBook(ServerPlayerEntity player) {
         LOGGER.info("Dando Diário de Aventuras para: {}", player.getName().getString());
         
+        PlayerAdventureData data = getPlayerData(player);
+        boolean isFirstTime = data.isFirstTime();
+        
         // Remove qualquer livro antigo primeiro
         removeOldBooks(player);
         
@@ -402,10 +414,31 @@ public class AdventureJournalMod implements ModInitializer {
                 false
             );
         } else {
-            player.sendMessage(
-                Text.literal("§6✨ Diário de Aventuras atualizado! ✨").formatted(Formatting.GOLD),
-                false
-            );
+            if (isFirstTime) {
+                // Mensagem de apresentação para primeira vez
+                player.sendMessage(
+                    Text.literal("§6✨ Bem-vindo ao Adventure Journal! ✨").formatted(Formatting.GOLD),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§bSeu diário pessoal foi criado e documentará toda sua jornada!").formatted(Formatting.AQUA),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi add <nome>§7 para marcar locais importantes.").formatted(Formatting.GRAY),
+                    false
+                );
+                
+                // Marca que não é mais a primeira vez
+                data.setFirstTime(false);
+                savePlayerData(player, data);
+            } else {
+                // Mensagem normal para outras ocasiões
+                player.sendMessage(
+                    Text.literal("§6✨ Diário de Aventuras atualizado! ✨").formatted(Formatting.GOLD),
+                    false
+                );
+            }
         }
     }
     
