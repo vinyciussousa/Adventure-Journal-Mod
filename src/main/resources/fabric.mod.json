@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "adventurejournalmod",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "Adventure Journal",
   "description": "Adiciona um Diário de Aventuras quando você cria um novo mundo para registrar suas aventuras.",
   "authors": [

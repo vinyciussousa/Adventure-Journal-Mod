@@ -39,7 +39,7 @@ public class AdventureJournalMod implements ModInitializer {
     
     // Classe para armazenar dados da aventura do jogador
     public static class PlayerAdventureData {
-        private String lastDeathInfo = "§6=== MORTE ===§r\n\n§bVocê ainda não morreu nesta aventura!§r\n\n§7Continue explorando e enfrentando desafios!";
+        private String lastDeathInfo = "§6=== MORTE ===§r\n\n§9Você ainda não morreu nesta aventura!§r\n\n§7Continue explorando e enfrentando desafios!";
         private List<PointOfInterest> pointsOfInterest = new ArrayList<>();
         private boolean isFirstTime = true; // Flag para detectar primeira vez
         
@@ -67,7 +67,7 @@ public class AdventureJournalMod implements ModInitializer {
                                dimension.contains("nether") ? "Nether" : 
                                dimension.contains("end") ? "End" : "Desconhecida";
                 
-                return String.format("§6=== POI ===§r\n\n§b%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§9%s§r\n\n§8%s§r", 
+                return String.format("§6=== POI ===§r\n\n§9%s§r\n\n§7%s§r\n\n§aX: %d Y: %d Z: %d§r\n§9%s§r\n\n§8%s§r", 
                     name, description, position.x, position.y, position.z, dimName, timestamp);
             }
         }
@@ -107,6 +107,50 @@ public class AdventureJournalMod implements ModInitializer {
         
         public List<PointOfInterest> getPointsOfInterest() {
             return pointsOfInterest;
+        }
+        
+        // Método para remover POI por índice (1-based)
+        public boolean removePointOfInterest(int index) {
+            if (index < 1 || index > pointsOfInterest.size()) {
+                return false; // Índice inválido
+            }
+            pointsOfInterest.remove(index - 1); // Remove (convertendo para 0-based)
+            return true;
+        }
+        
+        // Método para obter POI por índice (1-based) - útil para confirmações
+        public PointOfInterest getPointOfInterest(int index) {
+            if (index < 1 || index > pointsOfInterest.size()) {
+                return null; // Índice inválido
+            }
+            return pointsOfInterest.get(index - 1); // Retorna (convertendo para 0-based)
+        }
+        
+        // Método para editar POI por índice (1-based)
+        public boolean editPointOfInterest(int index, String newName, String newDescription) {
+            if (index < 1 || index > pointsOfInterest.size()) {
+                return false; // Índice inválido
+            }
+            
+            PointOfInterest poi = pointsOfInterest.get(index - 1);
+            
+            // Atualiza apenas os campos fornecidos (não nulos)
+            if (newName != null && !newName.trim().isEmpty()) {
+                poi.name = newName.trim();
+            }
+            
+            if (newDescription != null && !newDescription.trim().isEmpty()) {
+                // Limita a descrição a 35 caracteres
+                if (newDescription.length() > 35) {
+                    newDescription = newDescription.substring(0, 35);
+                }
+                poi.description = newDescription.trim();
+            }
+            
+            // Atualiza o timestamp para mostrar quando foi editado
+            poi.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
+            
+            return true;
         }
         
         public boolean isFirstTime() {
@@ -212,7 +256,7 @@ public class AdventureJournalMod implements ModInitializer {
     public void onInitialize() {
         System.out.println("=".repeat(50));
         System.out.println("ADVENTURE JOURNAL MOD CARREGADO!");
-        System.out.println("Versão: Diário Automático de Aventuras");
+        System.out.println("Versão: v1.1.0 - POI Management System");
         System.out.println("=".repeat(50));
         
         // Registra o comando para adicionar pontos de interesse
@@ -290,6 +334,7 @@ public class AdventureJournalMod implements ModInitializer {
                     )
                 )
                 .then(CommandManager.literal("list")
+                    // Comando list básico
                     .executes(context -> {
                         ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
                         PlayerAdventureData data = getPlayerData(player);
@@ -312,7 +357,501 @@ public class AdventureJournalMod implements ModInitializer {
                                     false
                                 );
                             }
+                            
+                            player.sendMessage(
+                                Text.literal("§7Use §a/poi list -d§7 para modo detalhado ou §a/poi info <#>§7 para mais informações.").formatted(Formatting.GRAY),
+                                false
+                            );
                         }
+                        
+                        return 1;
+                    })
+                    // Comando list detalhado
+                    .then(CommandManager.literal("-d")
+                        .executes(context -> {
+                            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                            PlayerAdventureData data = getPlayerData(player);
+                            
+                            if (data.getPointsOfInterest().isEmpty()) {
+                                player.sendMessage(
+                                    Text.literal("§eVocê ainda não tem pontos de interesse registrados.").formatted(Formatting.YELLOW),
+                                    false
+                                );
+                                return 1;
+                            }
+                            
+                            player.sendMessage(
+                                Text.literal("§6=== Pontos de Interesse (Detalhado) ===").formatted(Formatting.GOLD),
+                                false
+                            );
+                            
+                            BlockPos playerPos = player.getBlockPos();
+                            String currentDim = player.getWorld().getRegistryKey().getValue().toString();
+                            
+                            for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
+                                PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
+                                
+                                // Calcula distância
+                                BlockPos poiPos = poi.position.toBlockPos();
+                                double distance = Math.sqrt(playerPos.getSquaredDistance(poiPos));
+                                
+                                // Nome da dimensão
+                                String dimName = poi.dimension.contains("overworld") ? "Overworld" : 
+                                               poi.dimension.contains("nether") ? "Nether" : 
+                                               poi.dimension.contains("end") ? "End" : "Desconhecida";
+                                
+                                // Indicador se está na mesma dimensão
+                                String dimIndicator = currentDim.equals(poi.dimension) ? "§a✓" : "§c✗";
+                                
+                                player.sendMessage(
+                                    Text.literal("§6" + (i + 1) + ". " + poi.name).formatted(Formatting.WHITE),
+                                    false
+                                );
+                                player.sendMessage(
+                                    Text.literal("   §7" + poi.description).formatted(Formatting.GRAY),
+                                    false
+                                );
+                                player.sendMessage(
+                                    Text.literal("   §8[" + poi.position.x + ", " + poi.position.y + ", " + poi.position.z + "] " + 
+                                                dimIndicator + " " + dimName + " §e(" + String.format("%.1f", distance) + "m)").formatted(Formatting.GRAY),
+                                    false
+                                );
+                                
+                                // Adiciona linha separadora se não for o último
+                                if (i < data.getPointsOfInterest().size() - 1) {
+                                    player.sendMessage(
+                                        Text.literal("   §8─────────────────────").formatted(Formatting.DARK_GRAY),
+                                        false
+                                    );
+                                }
+                            }
+                            
+                            player.sendMessage(
+                                Text.literal("§7Use §a/poi info <#>§7 para informações completas.").formatted(Formatting.GRAY),
+                                false
+                            );
+                            
+                            LOGGER.info("Jogador {} listou POIs em modo detalhado", player.getName().getString());
+                            
+                            return 1;
+                        })
+                    )
+                )
+                .then(CommandManager.literal("remove")
+                    .then(CommandManager.argument("index", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                        .executes(context -> {
+                            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                            int index = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "index");
+                            
+                            PlayerAdventureData data = getPlayerData(player);
+                            
+                            // Verifica se há POIs para remover
+                            if (data.getPointsOfInterest().isEmpty()) {
+                                player.sendMessage(
+                                    Text.literal("§cVocê não tem pontos de interesse para remover.").formatted(Formatting.RED),
+                                    false
+                                );
+                                return 1;
+                            }
+                            
+                            // Verifica se o índice é válido
+                            if (index < 1 || index > data.getPointsOfInterest().size()) {
+                                player.sendMessage(
+                                    Text.literal("§cÍndice inválido! Use um número entre 1 e " + data.getPointsOfInterest().size() + ".").formatted(Formatting.RED),
+                                    false
+                                );
+                                return 1;
+                            }
+                            
+                            // Obtém informações do POI antes de remover (para confirmação)
+                            PlayerAdventureData.PointOfInterest poiToRemove = data.getPointOfInterest(index);
+                            String poiName = poiToRemove.name;
+                            
+                            // Remove o POI
+                            if (data.removePointOfInterest(index)) {
+                                savePlayerData(player, data); // Salva os dados após remoção
+                                updatePlayerBook(player); // Atualiza o livro
+                                
+                                player.sendMessage(
+                                    Text.literal("§a✅ Ponto de interesse '§6" + poiName + "§a' removido com sucesso!").formatted(Formatting.GREEN),
+                                    false
+                                );
+                                
+                                // Se ainda há POIs, mostra a lista atualizada
+                                if (!data.getPointsOfInterest().isEmpty()) {
+                                    player.sendMessage(
+                                        Text.literal("§7Lista atualizada:").formatted(Formatting.GRAY),
+                                        false
+                                    );
+                                    for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
+                                        PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
+                                        player.sendMessage(
+                                            Text.literal(String.format("§a%d. §6%s§r", i + 1, poi.name)).formatted(Formatting.WHITE),
+                                            false
+                                        );
+                                    }
+                                } else {
+                                    player.sendMessage(
+                                        Text.literal("§7Sua lista de POIs está agora vazia.").formatted(Formatting.GRAY),
+                                        false
+                                    );
+                                }
+                                
+                                LOGGER.info("Jogador {} removeu ponto de interesse: {}", 
+                                    player.getName().getString(), poiName);
+                            } else {
+                                player.sendMessage(
+                                    Text.literal("§cErro ao remover o ponto de interesse.").formatted(Formatting.RED),
+                                    false
+                                );
+                            }
+                            
+                            return 1;
+                        })
+                    )
+                )
+                .then(CommandManager.literal("edit")
+                    .then(CommandManager.argument("index", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                        .then(CommandManager.argument("name", com.mojang.brigadier.arguments.StringArgumentType.string())
+                            // Comando completo: /poi edit <índice> <nome> <descrição>
+                            .then(CommandManager.argument("description", com.mojang.brigadier.arguments.StringArgumentType.greedyString())
+                                .executes(context -> {
+                                    ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                                    int index = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "index");
+                                    String newName = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "name");
+                                    String newDescription = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "description");
+                                    
+                                    // Remove aspas do início e fim se existirem
+                                    newName = removeQuotes(newName);
+                                    newDescription = removeQuotes(newDescription);
+                                    
+                                    PlayerAdventureData data = getPlayerData(player);
+                                    
+                                    // Verifica se há POIs para editar
+                                    if (data.getPointsOfInterest().isEmpty()) {
+                                        player.sendMessage(
+                                            Text.literal("§cVocê não tem pontos de interesse para editar.").formatted(Formatting.RED),
+                                            false
+                                        );
+                                        return 1;
+                                    }
+                                    
+                                    // Verifica se o índice é válido
+                                    if (index < 1 || index > data.getPointsOfInterest().size()) {
+                                        player.sendMessage(
+                                            Text.literal("§cÍndice inválido! Use um número entre 1 e " + data.getPointsOfInterest().size() + ".").formatted(Formatting.RED),
+                                            false
+                                        );
+                                        return 1;
+                                    }
+                                    
+                                    // Obtém POI antes da edição
+                                    PlayerAdventureData.PointOfInterest oldPoi = data.getPointOfInterest(index);
+                                    String oldName = oldPoi.name;
+                                    String oldDescription = oldPoi.description;
+                                    
+                                    // Edita o POI
+                                    boolean wasDescriptionTruncated = newDescription.length() > 35;
+                                    if (data.editPointOfInterest(index, newName, newDescription)) {
+                                        savePlayerData(player, data); // Salva os dados após edição
+                                        updatePlayerBook(player); // Atualiza o livro
+                                        
+                                        // Feedback sobre truncamento de descrição
+                                        if (wasDescriptionTruncated) {
+                                            player.sendMessage(
+                                                Text.literal("§e🚫 Descrição cortada para 35 caracteres.").formatted(Formatting.YELLOW),
+                                                false
+                                            );
+                                        }
+                                        
+                                        player.sendMessage(
+                                            Text.literal("§a✅ Ponto de interesse editado com sucesso!").formatted(Formatting.GREEN),
+                                            false
+                                        );
+                                        
+                                        // Mostra as mudanças
+                                        player.sendMessage(
+                                            Text.literal("§7Antes: §6" + oldName + "§7 - " + oldDescription).formatted(Formatting.GRAY),
+                                            false
+                                        );
+                                        
+                                        PlayerAdventureData.PointOfInterest updatedPoi = data.getPointOfInterest(index);
+                                        player.sendMessage(
+                                            Text.literal("§7Agora: §6" + updatedPoi.name + "§7 - " + updatedPoi.description).formatted(Formatting.GRAY),
+                                            false
+                                        );
+                                        
+                                        LOGGER.info("Jogador {} editou POI #{}: '{}' para '{}'", 
+                                            player.getName().getString(), index, oldName, updatedPoi.name);
+                                    } else {
+                                        player.sendMessage(
+                                            Text.literal("§cErro ao editar o ponto de interesse.").formatted(Formatting.RED),
+                                            false
+                                        );
+                                    }
+                                    
+                                    return 1;
+                                })
+                            )
+                            // Comando apenas com nome: /poi edit <índice> <nome>
+                            .executes(context -> {
+                                ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                                int index = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "index");
+                                String newName = com.mojang.brigadier.arguments.StringArgumentType.getString(context, "name");
+                                
+                                // Remove aspas do início e fim se existirem
+                                newName = removeQuotes(newName);
+                                
+                                PlayerAdventureData data = getPlayerData(player);
+                                
+                                // Verifica se há POIs para editar
+                                if (data.getPointsOfInterest().isEmpty()) {
+                                    player.sendMessage(
+                                        Text.literal("§cVocê não tem pontos de interesse para editar.").formatted(Formatting.RED),
+                                        false
+                                    );
+                                    return 1;
+                                }
+                                
+                                // Verifica se o índice é válido
+                                if (index < 1 || index > data.getPointsOfInterest().size()) {
+                                    player.sendMessage(
+                                        Text.literal("§cÍndice inválido! Use um número entre 1 e " + data.getPointsOfInterest().size() + ".").formatted(Formatting.RED),
+                                        false
+                                    );
+                                    return 1;
+                                }
+                                
+                                // Obtém POI antes da edição
+                                PlayerAdventureData.PointOfInterest oldPoi = data.getPointOfInterest(index);
+                                String oldName = oldPoi.name;
+                                
+                                // Edita apenas o nome (mantém descrição)
+                                if (data.editPointOfInterest(index, newName, null)) {
+                                    savePlayerData(player, data); // Salva os dados após edição
+                                    updatePlayerBook(player); // Atualiza o livro
+                                    
+                                    player.sendMessage(
+                                        Text.literal("§a✅ Nome do ponto de interesse editado com sucesso!").formatted(Formatting.GREEN),
+                                        false
+                                    );
+                                    
+                                    // Mostra a mudança
+                                    player.sendMessage(
+                                        Text.literal("§7Antes: §6" + oldName).formatted(Formatting.GRAY),
+                                        false
+                                    );
+                                    
+                                    PlayerAdventureData.PointOfInterest updatedPoi = data.getPointOfInterest(index);
+                                    player.sendMessage(
+                                        Text.literal("§7Agora: §6" + updatedPoi.name).formatted(Formatting.GRAY),
+                                        false
+                                    );
+                                    
+                                    LOGGER.info("Jogador {} editou nome do POI #{}: '{}' para '{}'", 
+                                        player.getName().getString(), index, oldName, updatedPoi.name);
+                                } else {
+                                    player.sendMessage(
+                                        Text.literal("§cErro ao editar o ponto de interesse.").formatted(Formatting.RED),
+                                        false
+                                    );
+                                }
+                                
+                                return 1;
+                            })
+                        )
+                    )
+                )
+                .then(CommandManager.literal("info")
+                    .then(CommandManager.argument("index", com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                        .executes(context -> {
+                            ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                            int index = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(context, "index");
+                            
+                            PlayerAdventureData data = getPlayerData(player);
+                            
+                            // Verifica se há POIs
+                            if (data.getPointsOfInterest().isEmpty()) {
+                                player.sendMessage(
+                                    Text.literal("§cVocê não tem pontos de interesse registrados.").formatted(Formatting.RED),
+                                    false
+                                );
+                                return 1;
+                            }
+                            
+                            // Verifica se o índice é válido
+                            if (index < 1 || index > data.getPointsOfInterest().size()) {
+                                player.sendMessage(
+                                    Text.literal("§cÍndice inválido! Use um número entre 1 e " + data.getPointsOfInterest().size() + ".").formatted(Formatting.RED),
+                                    false
+                                );
+                                return 1;
+                            }
+                            
+                            // Obtém o POI
+                            PlayerAdventureData.PointOfInterest poi = data.getPointOfInterest(index);
+                            
+                            // Calcula distância do jogador atual
+                            BlockPos playerPos = player.getBlockPos();
+                            BlockPos poiPos = poi.position.toBlockPos();
+                            double distance = Math.sqrt(playerPos.getSquaredDistance(poiPos));
+                            
+                            // Nome da dimensão formatado
+                            String dimName = poi.dimension.contains("overworld") ? "Overworld" : 
+                                           poi.dimension.contains("nether") ? "Nether" : 
+                                           poi.dimension.contains("end") ? "End" : "Desconhecida";
+                            
+                            // Mostra informações detalhadas
+                            player.sendMessage(
+                                Text.literal("§6=== Informações do POI #" + index + " ===").formatted(Formatting.GOLD),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Nome: §f" + poi.name).formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Descrição: §f" + poi.description).formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Coordenadas: §aX: " + poi.position.x + " Y: " + poi.position.y + " Z: " + poi.position.z).formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Dimensão: §9" + dimName).formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Distância: §e" + String.format("%.1f", distance) + " blocos").formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Criado/Editado: §8" + poi.timestamp).formatted(Formatting.WHITE),
+                                false
+                            );
+                            
+                            // Comando de teleporte (se estiver na mesma dimensão)
+                            String currentDim = player.getWorld().getRegistryKey().getValue().toString();
+                            if (currentDim.equals(poi.dimension)) {
+                                player.sendMessage(
+                                    Text.literal("§7Para teleportar: §a/tp " + poi.position.x + " " + poi.position.y + " " + poi.position.z).formatted(Formatting.GRAY),
+                                    false
+                                );
+                            } else {
+                                player.sendMessage(
+                                    Text.literal("§7POI está em outra dimensão (" + dimName + ")").formatted(Formatting.GRAY),
+                                    false
+                                );
+                            }
+                            
+                            LOGGER.info("Jogador {} consultou info do POI #{}: {}", 
+                                player.getName().getString(), index, poi.name);
+                            
+                            return 1;
+                        })
+                    )
+                )
+                .then(CommandManager.literal("nearest")
+                    .executes(context -> {
+                        ServerPlayerEntity player = context.getSource().getPlayerOrThrow();
+                        PlayerAdventureData data = getPlayerData(player);
+                        
+                        if (data.getPointsOfInterest().isEmpty()) {
+                            player.sendMessage(
+                                Text.literal("§cVocê não tem pontos de interesse registrados.").formatted(Formatting.RED),
+                                false
+                            );
+                            return 1;
+                        }
+                        
+                        BlockPos playerPos = player.getBlockPos();
+                        String currentDim = player.getWorld().getRegistryKey().getValue().toString();
+                        
+                        PlayerAdventureData.PointOfInterest nearestPoi = null;
+                        double nearestDistance = Double.MAX_VALUE;
+                        int nearestIndex = -1;
+                        
+                        // Encontra o POI mais próximo na mesma dimensão
+                        for (int i = 0; i < data.getPointsOfInterest().size(); i++) {
+                            PlayerAdventureData.PointOfInterest poi = data.getPointsOfInterest().get(i);
+                            
+                            // Só considera POIs na mesma dimensão
+                            if (currentDim.equals(poi.dimension)) {
+                                BlockPos poiPos = poi.position.toBlockPos();
+                                double distance = Math.sqrt(playerPos.getSquaredDistance(poiPos));
+                                
+                                if (distance < nearestDistance) {
+                                    nearestDistance = distance;
+                                    nearestPoi = poi;
+                                    nearestIndex = i + 1; // 1-based index
+                                }
+                            }
+                        }
+                        
+                        if (nearestPoi == null) {
+                            // Nenhum POI na dimensão atual
+                            String dimName = currentDim.contains("overworld") ? "Overworld" : 
+                                           currentDim.contains("nether") ? "Nether" : 
+                                           currentDim.contains("end") ? "End" : "esta dimensão";
+                            
+                            player.sendMessage(
+                                Text.literal("§eNenhum ponto de interesse encontrado em " + dimName + ".").formatted(Formatting.YELLOW),
+                                false
+                            );
+                            
+                            // Mostra quantos POIs existem em outras dimensões
+                            int totalPois = data.getPointsOfInterest().size();
+                            player.sendMessage(
+                                Text.literal("§7Você tem " + totalPois + " POI(s) em outras dimensões. Use §a/poi list -d§7 para ver todos.").formatted(Formatting.GRAY),
+                                false
+                            );
+                        } else {
+                            // Mostra o POI mais próximo
+                            player.sendMessage(
+                                Text.literal("§6=== POI Mais Próximo ===").formatted(Formatting.GOLD),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§a#" + nearestIndex + " - §6" + nearestPoi.name).formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§7" + nearestPoi.description).formatted(Formatting.GRAY),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Distância: §e" + String.format("%.1f", nearestDistance) + " blocos").formatted(Formatting.WHITE),
+                                false
+                            );
+                            player.sendMessage(
+                                Text.literal("§9Coordenadas: §a[" + nearestPoi.position.x + ", " + nearestPoi.position.y + ", " + nearestPoi.position.z + "]").formatted(Formatting.WHITE),
+                                false
+                            );
+                            
+                            // Direção aproximada
+                            int deltaX = nearestPoi.position.x - playerPos.getX();
+                            int deltaZ = nearestPoi.position.z - playerPos.getZ();
+                            String direction = "";
+                            
+                            if (Math.abs(deltaX) > Math.abs(deltaZ)) {
+                                direction = deltaX > 0 ? "Leste" : "Oeste";
+                            } else {
+                                direction = deltaZ > 0 ? "Sul" : "Norte";
+                            }
+                            
+                            player.sendMessage(
+                                Text.literal("§9Direção: §9" + direction).formatted(Formatting.WHITE),
+                                false
+                            );
+                            
+                            player.sendMessage(
+                                Text.literal("§7Use §a/poi info " + nearestIndex + "§7 para mais detalhes.").formatted(Formatting.GRAY),
+                                false
+                            );
+                        }
+                        
+                        LOGGER.info("Jogador {} consultou POI mais próximo", player.getName().getString());
                         
                         return 1;
                     })
@@ -421,7 +960,7 @@ public class AdventureJournalMod implements ModInitializer {
                     false
                 );
                 player.sendMessage(
-                    Text.literal("§bSeu diário pessoal foi criado e documentará toda sua jornada!").formatted(Formatting.AQUA),
+                    Text.literal("§9Seu diário pessoal foi criado e documentará toda sua jornada!").formatted(Formatting.BLUE),
                     false
                 );
                 player.sendMessage(
@@ -429,7 +968,23 @@ public class AdventureJournalMod implements ModInitializer {
                     false
                 );
                 player.sendMessage(
-                    Text.literal("§7Use §a/poi list§7 para listar locais importantes.").formatted(Formatting.GRAY),
+                    Text.literal("§7Use §a/poi list§7 para listar pontos (§a-d§7 para detalhes).").formatted(Formatting.GRAY),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi info <#>§7 para informações detalhadas.").formatted(Formatting.GRAY),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi edit <#> <nome>§7 para editar pontos.").formatted(Formatting.GRAY),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi remove <#>§7 para remover pontos.").formatted(Formatting.GRAY),
+                    false
+                );
+                player.sendMessage(
+                    Text.literal("§7Use §a/poi nearest <#>§7 para encontrar pontos próximos.").formatted(Formatting.GRAY),
                     false
                 );
                 
@@ -483,13 +1038,17 @@ public class AdventureJournalMod implements ModInitializer {
         
         // Página 1: Introdução
         String introPage = "§6=== DIÁRIO DE AVENTURAS ===§r\n\n" +
-                "§bBem-vindo!§r\n\n" +
+                "§9Bem-vindo!§r\n\n" +
                 "Registra automaticamente:\n" +
                 "• §cSua última morte§r\n" +
                 "• §aPontos de interesse§r\n\n" +
-                "§7Comandos:§r\n" +
+                "§7Comandos POI:§r\n" +
                 "§a/poi add <nome> <desc>§r\n" +
-                "§a/poi list§r";
+                "§a/poi list [-d]§r\n" +
+                "§a/poi info <#>§r\n" +
+                "§a/poi edit <#> <nome>§r\n" +
+                "§a/poi remove <#>§r\n" +
+                "§a/poi nearest§r";
         
         pages.add(RawFilteredPair.of(Text.literal(introPage)));
         
@@ -498,7 +1057,7 @@ public class AdventureJournalMod implements ModInitializer {
         
         // Páginas 3+: Pontos de interesse (uma página por POI)
         if (data.getPointsOfInterest().isEmpty()) {
-            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto registrado.§r\n\n§bComandos:§r\n§a/poi add <nome> <desc>§r\n§a/poi list§r\n§7Adicione pontos interessantes em sua aventura!§r")));
+            pages.add(RawFilteredPair.of(Text.literal("§6=== PONTOS DE INTERESSE ===§r\n\n§7Nenhum ponto registrado.§r\n\n§9Comandos:§r\n§a/poi add <nome> <desc>§r\n§a/poi list§r\n§7Adicione pontos interessantes em sua aventura!§r")));
         } else {
             // Adiciona uma página para cada POI
             for (PlayerAdventureData.PointOfInterest poi : data.getPointsOfInterest()) {
