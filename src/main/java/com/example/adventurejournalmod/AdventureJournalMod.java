@@ -726,6 +726,37 @@ public class AdventureJournalMod implements ModInitializer {
                                 Text.literal("§9Distância: §e" + String.format("%.1f", distance) + " blocos").formatted(Formatting.WHITE),
                                 false
                             );
+                            
+                            // Direção aproximada com direções colaterais
+                            int deltaX = poi.position.x - playerPos.getX();
+                            int deltaZ = poi.position.z - playerPos.getZ();
+                            String direction = "";
+                            
+                            // Calcula direções colaterais baseado em ambos os eixos
+                            if (Math.abs(deltaX) > 15 && Math.abs(deltaZ) > 15) {
+                                // Direções colaterais (quando há movimento significativo em ambos os eixos)
+                                if (deltaX > 0 && deltaZ > 0) {
+                                    direction = "Sudeste";
+                                } else if (deltaX > 0 && deltaZ < 0) {
+                                    direction = "Nordeste";
+                                } else if (deltaX < 0 && deltaZ > 0) {
+                                    direction = "Sudoeste";
+                                } else {
+                                    direction = "Noroeste";
+                                }
+                            } else {
+                                // Direções cardeais (quando há movimento predominante em um eixo)
+                                if (Math.abs(deltaX) > Math.abs(deltaZ)) {
+                                    direction = deltaX > 0 ? "Leste" : "Oeste";
+                                } else {
+                                    direction = deltaZ > 0 ? "Sul" : "Norte";
+                                }
+                            }
+                            
+                            player.sendMessage(
+                                Text.literal("§9Direção: §9" + direction).formatted(Formatting.WHITE),
+                                false
+                            );
                             player.sendMessage(
                                 Text.literal("§9Criado/Editado: §8" + poi.timestamp).formatted(Formatting.WHITE),
                                 false
@@ -829,15 +860,30 @@ public class AdventureJournalMod implements ModInitializer {
                                 false
                             );
                             
-                            // Direção aproximada
+                            // Direção aproximada com direções colaterais
                             int deltaX = nearestPoi.position.x - playerPos.getX();
                             int deltaZ = nearestPoi.position.z - playerPos.getZ();
                             String direction = "";
                             
-                            if (Math.abs(deltaX) > Math.abs(deltaZ)) {
-                                direction = deltaX > 0 ? "Leste" : "Oeste";
+                            // Calcula direções colaterais baseado em ambos os eixos
+                            if (Math.abs(deltaX) > 15 && Math.abs(deltaZ) > 15) {
+                                // Direções colaterais (quando há movimento significativo em ambos os eixos)
+                                if (deltaX > 0 && deltaZ > 0) {
+                                    direction = "Sudeste";
+                                } else if (deltaX > 0 && deltaZ < 0) {
+                                    direction = "Nordeste";
+                                } else if (deltaX < 0 && deltaZ > 0) {
+                                    direction = "Sudoeste";
+                                } else {
+                                    direction = "Noroeste";
+                                }
                             } else {
-                                direction = deltaZ > 0 ? "Sul" : "Norte";
+                                // Direções cardeais (quando há movimento predominante em um eixo)
+                                if (Math.abs(deltaX) > Math.abs(deltaZ)) {
+                                    direction = deltaX > 0 ? "Leste" : "Oeste";
+                                } else {
+                                    direction = deltaZ > 0 ? "Sul" : "Norte";
+                                }
                             }
                             
                             player.sendMessage(
