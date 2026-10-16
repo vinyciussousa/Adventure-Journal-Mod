@@ -1,4 +1,4 @@
-package com.example.adventurejournalmod;
+package io.github.vinyciussousa.adventurejournal;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -31,7 +31,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 public class AdventureJournalMod implements ModInitializer {
-    public static final String MOD_ID = "starterbookmod";
+    public static final String MOD_ID = "adventurejournalmod";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     
     // Dados por mundo - armazena informações dos jogadores

@@ -12,7 +12,7 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.example.adventurejournalmod.AdventureJournalMod"
+      "io.github.vinyciussousa.adventurejournal.AdventureJournalMod"
     ]
   },
   "depends": {

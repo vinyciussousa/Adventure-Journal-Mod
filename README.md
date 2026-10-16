@@ -2,10 +2,12 @@
 
 > [!NOTE]
 > **Status: descontinuado.** Projeto criado para uso pessoal. Não recebe mais atualizações e foi desenvolvido apenas para o Minecraft 1.21.8.
+>
+> Desenvolvido com auxílio de inteligência artificial, como experimento para avaliar na prática o desenvolvimento assistido por IA.
 
 Um mod do Minecraft que fornece um **Diário de Aventuras** com sistema completo de gerenciamento de Pontos de Interesse (POIs).
 
-> **English summary:** Minecraft mod built in Java with the Fabric API. It gives each player a read-only journal that is updated automatically with their last death (time, coordinates, dimension and cause) and with points of interest managed through `/poi` commands (add, edit, remove, info, list, nearest), with real-time distance and direction. Data is persisted per world and per player in JSON files. Personal project, currently discontinued.
+> **English summary:** Minecraft mod built in Java with the Fabric API. It gives each player a read-only journal that is updated automatically with their last death (time, coordinates, dimension and cause) and with points of interest managed through `/poi` commands (add, edit, remove, info, list, nearest), with real-time distance and direction. Data is persisted per world and per player in JSON files. Personal project, built with AI assistance as an experiment in AI-assisted development; currently discontinued.
 
 ## 📖 Funcionalidades
 

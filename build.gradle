@@ -14,7 +14,7 @@ loom {
     splitEnvironmentSourceSets()
     
     mods {
-        "starterbookmod" {
+        "adventurejournalmod" {
             sourceSet sourceSets.main
             sourceSet sourceSets.client
         }
