@@ -1,6 +1,11 @@
 # Adventure Journal Mod
 
+> [!NOTE]
+> **Status: descontinuado.** Projeto criado para uso pessoal. Não recebe mais atualizações e foi desenvolvido apenas para o Minecraft 1.21.8.
+
 Um mod do Minecraft que fornece um **Diário de Aventuras** com sistema completo de gerenciamento de Pontos de Interesse (POIs).
+
+> **English summary:** Minecraft mod built in Java with the Fabric API. It gives each player a read-only journal that is updated automatically with their last death (time, coordinates, dimension and cause) and with points of interest managed through `/poi` commands (add, edit, remove, info, list, nearest), with real-time distance and direction. Data is persisted per world and per player in JSON files. Personal project, currently discontinued.
 
 ## 📖 Funcionalidades
 
@@ -158,14 +163,14 @@ Encontra e exibe o ponto de interesse mais próximo na dimensão atual, incluind
 
 ## 🚀 Instalação
 
-1. Baixe o arquivo `.jar` do mod
+1. Baixe o arquivo `.jar` do mod na página de [Releases](https://github.com/vinyciussousa/Adventure-Journal-Mod/releases)
 2. Coloque na pasta `mods` do seu perfil Fabric
 3. Inicie o jogo
 4. O diário será dado automaticamente ao entrar em um mundo
 
 ## 📝 Histórico de Versões
 
-### v1.1.0 (Atual) - POI Management System
+### v1.1.0 (última versão) - POI Management System
 - Sistema completo de gerenciamento de POIs
 - 6 comandos avançados (`add`, `list`, `remove`, `edit`, `info`, `nearest`)
 - Cálculo de distância e direção em tempo real
